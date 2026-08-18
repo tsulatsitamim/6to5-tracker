@@ -20,6 +20,8 @@ final class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate
 }
 
 final class PresenceDetector: PresenceDetecting {
+    private static let minFaceWidth: CGFloat = 0.15
+
     func detectPresence() -> PresenceResult {
         let session = AVCaptureSession()
         session.sessionPreset = .low
@@ -56,7 +58,7 @@ final class PresenceDetector: PresenceDetecting {
         let handler = VNImageRequestHandler(cvPixelBuffer: buffer, options: [:])
         try? handler.perform([request])
 
-        let hasFace = (request.results?.isEmpty == false)
-        return hasFace ? .present : .absent
+        let largestWidth = request.results?.map { $0.boundingBox.width }.max() ?? 0
+        return largestWidth >= Self.minFaceWidth ? .present : .absent
     }
 }
