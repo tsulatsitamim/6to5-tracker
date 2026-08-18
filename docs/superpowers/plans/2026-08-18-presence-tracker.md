@@ -4,7 +4,7 @@
 
 **Goal:** A native macOS menu-bar app that tracks daily work time by periodically sampling the webcam for face presence (no manual start/stop).
 
-**Architecture:** Swift Package Manager project with a pure-logic library (`TrackerCore`) and a thin app target (`TrackerApp`). A background timer samples the camera every N seconds via AVFoundation+Vision, feeds a presence state machine (`Active`/`Grace`/`Idle`) that opens/closes SwiftData `WorkSegment` records, surfaced through a `MenuBarExtra` popover. The app is hand-bundled into a `.app` by `Scripts/bundle.sh`.
+**Architecture:** Swift Package Manager project with a pure-logic library (`TrackerCore`) and a thin app target (`TrackerApp`). A background timer samples the camera every N seconds via AVFoundation+Vision, feeds a presence state machine (`Active`/`Grace`/`Idle`) that opens/closes `WorkSegment` records (in-memory), surfaced through a `MenuBarExtra` popover. The app is hand-bundled into a `.app` by `Scripts/bundle.sh`.
 
 **Tech Stack:** Swift 5.9+, SwiftUI, AVFoundation, Vision, SwiftData, macOS 14+.
 
@@ -19,6 +19,7 @@
 - Defaults: sample interval 5s, grace period 120s, camera-unavailable counts as present.
 - Settings changes take effect on next launch (documented in UI).
 - Build via `swift build`; test via `make test` (runs a hand-rolled assertion runner through `swift run TrackerCoreTests` — XCTest and Swift Testing are unavailable without full Xcode, only Command Line Tools). Run the app via `make run` (bundled `.app`).
+- Storage is in-memory only: the SwiftData `@Model` macro does not expand under the Command Line Tools toolchain (its compiler plugin ships with Xcode), and hand-writing `PersistentModel` is fragile (crashes with "Invalid access before setting the backing data"). `WorkSegment` is a plain `final class` and `SessionStore` holds an array; work is tracked within a running session but does not persist across launches. Disk persistence is a documented limitation pending a full Xcode install.
 
 ---
 
@@ -610,8 +611,8 @@ git commit -m "feat: presence state machine engine with tests"
 **Interfaces:**
 - Consumes: `SessionRecording` (Task 2).
 - Produces:
-  - `WorkSegment` (`@Model`, `id: UUID`, `startedAt: Date`, `endedAt: Date?`, `createdAt: Date`, init with defaults).
-  - `SessionStore: SessionRecording` with `init(context:)`, `startSegment(at:)`, `endSegment(at:)`, `openSegment() -> WorkSegment?`, `allSegments() -> [WorkSegment]`.
+  - `WorkSegment` (plain `final class`, `id: UUID`, `startedAt: Date`, `endedAt: Date?`, `createdAt: Date`, init with defaults).
+  - `SessionStore: SessionRecording` with `init()`, `startSegment(at:)`, `endSegment(at:)`, `openSegment() -> WorkSegment?`, `allSegments() -> [WorkSegment]`.
   - `DaySummary` (`day: Date`, `total: TimeInterval`, `Equatable`) and `DayGrouping.summarize(_:calendar:now:) -> [DaySummary]`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -663,18 +664,14 @@ func runDayGroupingTests() {
 `Tests/TrackerCoreTests/SessionStoreTests.swift`:
 ```swift
 import Foundation
-import SwiftData
 import TrackerCore
 
-private func makeStore() -> (SessionStore, ModelContext) {
-    let config = ModelConfiguration(isStoredInMemoryOnly: true)
-    let container = try! ModelContainer(for: WorkSegment.self, configurations: config)
-    let context = ModelContext(container)
-    return (SessionStore(context: context), context)
+private func makeStore() -> SessionStore {
+    SessionStore()
 }
 
 private func testStartAndEndSegment() {
-    let (store, _) = makeStore()
+    let store = makeStore()
     let start = Date(timeIntervalSince1970: 1_000)
 
     store.startSegment(at: start)
@@ -688,19 +685,25 @@ private func testStartAndEndSegment() {
     expectEqual(segments.first?.endedAt, start.addingTimeInterval(60) as Date?, "endedAt should match")
 }
 
-private func testOpenSegmentRecoveredOnInit() {
-    let (store, context) = makeStore()
-    let start = Date(timeIntervalSince1970: 2_000)
+private func testMultipleSegmentsSortedByStart() {
+    let store = makeStore()
+    let t1 = Date(timeIntervalSince1970: 2_000)
+    let t0 = Date(timeIntervalSince1970: 1_000)
 
-    store.startSegment(at: start)
+    store.startSegment(at: t0)
+    store.endSegment(at: t0.addingTimeInterval(30))
 
-    let reopened = SessionStore(context: context)
-    expectNotNil(reopened.openSegment(), "open segment should be recovered on init")
+    store.startSegment(at: t1)
+    store.endSegment(at: t1.addingTimeInterval(30))
+
+    let segments = store.allSegments()
+    expectEqual(segments.count, 2, "there should be two segments")
+    expectEqual(segments.first?.startedAt, t0 as Date?, "segments should be sorted by startedAt ascending")
 }
 
 func runStoreTests() {
     testStartAndEndSegment()
-    testOpenSegmentRecoveredOnInit()
+    testMultipleSegmentsSortedByStart()
 }
 ```
 
@@ -715,10 +718,8 @@ to:
 ```swift
         runVersionTests()
         runEngineTests()
-        MainActor.assumeIsolated {
-            runStoreTests()
-            runDayGroupingTests()
-        }
+        runStoreTests()
+        runDayGroupingTests()
 
         print("== \(testCount) assertions, \(testFailures) failures ==")
 ```
@@ -732,9 +733,7 @@ Expected: FAIL at build — `cannot find 'WorkSegment' in scope` (the test files
 
 ```swift
 import Foundation
-import SwiftData
 
-@Model
 public final class WorkSegment {
     public var id: UUID
     public var startedAt: Date
@@ -759,29 +758,25 @@ public final class WorkSegment {
 
 ```swift
 import Foundation
-import SwiftData
 
 public final class SessionStore: SessionRecording {
-    private let context: ModelContext
+    private var segments: [WorkSegment] = []
     private var currentSegment: WorkSegment?
 
-    public init(context: ModelContext) {
-        self.context = context
+    public init() {
         self.currentSegment = findOpenSegment()
     }
 
     public func startSegment(at date: Date) {
         let segment = WorkSegment(startedAt: date, createdAt: date)
-        context.insert(segment)
+        segments.append(segment)
         currentSegment = segment
-        save()
     }
 
     public func endSegment(at date: Date) {
         guard let segment = currentSegment else { return }
         segment.endedAt = date
         currentSegment = nil
-        save()
     }
 
     public func openSegment() -> WorkSegment? {
@@ -789,18 +784,11 @@ public final class SessionStore: SessionRecording {
     }
 
     public func allSegments() -> [WorkSegment] {
-        var descriptor = FetchDescriptor<WorkSegment>(
-            sortBy: [SortDescriptor(\.startedAt)]
-        )
-        return (try? context.fetch(descriptor)) ?? []
+        segments.sorted { $0.startedAt < $1.startedAt }
     }
 
     private func findOpenSegment() -> WorkSegment? {
-        allSegments().last(where: { $0.endedAt == nil })
-    }
-
-    private func save() {
-        try? context.save()
+        segments.last(where: { $0.endedAt == nil })
     }
 }
 ```
@@ -850,7 +838,7 @@ Expected: `ALL TESTS PASSED` (version + engine + store + grouping suites).
 
 ```bash
 git add Sources/TrackerCore Tests/TrackerCoreTests
-git commit -m "feat: SwiftData WorkSegment, SessionStore, and day grouping"
+git commit -m "feat: WorkSegment, SessionStore, and day grouping (in-memory)"
 ```
 
 ---
@@ -978,9 +966,7 @@ final class TrackerModel: ObservableObject {
     var formattedToday: String { Self.format(todayElapsed) }
 
     init() {
-        let container = try! ModelContainer(for: WorkSegment.self)
-        let context = ModelContext(container)
-        store = SessionStore(context: context)
+        store = SessionStore()
 
         engine = WorkSessionEngine(
             detector: PresenceDetector(),
