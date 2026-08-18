@@ -59,6 +59,15 @@ final class PresenceDetector: PresenceDetecting {
         try? handler.perform([request])
 
         let largestWidth = request.results?.map { $0.boundingBox.width }.max() ?? 0
-        return largestWidth >= Self.minFaceWidth ? .present : .absent
+        if largestWidth >= Self.minFaceWidth {
+            return .present
+        }
+
+        // Fallback: human-body detection catches rotated-chair / face-away cases
+        // where the face detector misses at full profile.
+        let bodyRequest = VNDetectHumanRectanglesRequest()
+        try? handler.perform([bodyRequest])
+        let hasBody = (bodyRequest.results?.isEmpty == false)
+        return hasBody ? .present : .absent
     }
 }
