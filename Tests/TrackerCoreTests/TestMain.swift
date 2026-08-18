@@ -61,6 +61,7 @@ private func runVersionTests() {
 struct TestMain {
     static func main() {
         runVersionTests()
+        runCoreTypesTests()
 
         print("== \(testCount) assertions, \(testFailures) failures ==")
         if testFailures > 0 {
