@@ -7,6 +7,16 @@ final class TrackerModel: ObservableObject {
     @Published var todayElapsed: TimeInterval = 0
     @Published var history: [DaySummary] = []
     @Published var cameraUnavailable = false
+    @Published var weekElapsed: TimeInterval = 0
+    @Published var sittingElapsed: TimeInterval = 0
+
+    private var sittingStreakStart: Date?
+    private var sittingPausedAt: Date?
+    private static let isoCalendar: Calendar = {
+        var c = Calendar(identifier: .iso8601)
+        c.timeZone = .current
+        return c
+    }()
 
     private let store: SessionStore
     private var engine: WorkSessionEngine
@@ -28,9 +38,12 @@ final class TrackerModel: ObservableObject {
             )
         )
         engine.onStateChange = { [weak self] newState in
+            let now = Date()
             Task { @MainActor in
-                self?.state = newState
-                self?.refresh()
+                guard let self else { return }
+                self.state = newState
+                self.updateSittingStreak(for: newState, at: now)
+                self.refresh()
             }
         }
     }
@@ -59,6 +72,35 @@ final class TrackerModel: ObservableObject {
         history = Array(summaries.reversed())
         let today = Calendar.current.startOfDay(for: now)
         todayElapsed = summaries.first(where: { $0.day == today })?.total ?? 0
+
+        let weekStart = Self.isoCalendar.dateInterval(of: .weekOfYear, for: now)?.start ?? now
+        weekElapsed = history.filter { $0.day >= weekStart }.reduce(0.0) { $0 + $1.total }
+
+        switch engine.state {
+        case .active:
+            sittingElapsed = sittingStreakStart.map { now.timeIntervalSince($0) } ?? 0
+        case .grace:
+            if let start = sittingStreakStart, let paused = sittingPausedAt {
+                sittingElapsed = paused.timeIntervalSince(start)
+            } else {
+                sittingElapsed = 0
+            }
+        case .idle:
+            sittingElapsed = 0
+        }
+    }
+
+    private func updateSittingStreak(for newState: EngineState, at now: Date) {
+        switch newState {
+        case .active:
+            if sittingStreakStart == nil { sittingStreakStart = now }
+            sittingPausedAt = nil
+        case .grace:
+            if sittingPausedAt == nil { sittingPausedAt = now }
+        case .idle:
+            sittingStreakStart = nil
+            sittingPausedAt = nil
+        }
     }
 
     private func shutdown() {

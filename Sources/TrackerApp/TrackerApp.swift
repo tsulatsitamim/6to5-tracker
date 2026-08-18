@@ -21,6 +21,13 @@ struct PresenceTrackerApp: App {
             Text(model.formattedToday)
         }
         .menuBarExtraStyle(.window)
+
+        Window("Dashboard", id: "dashboard") {
+            DashboardView()
+                .environmentObject(model)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 1440, height: 900)
     }
 
     private var iconName: String {

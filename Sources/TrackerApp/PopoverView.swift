@@ -3,6 +3,7 @@ import TrackerCore
 
 struct PopoverView: View {
     @EnvironmentObject private var model: TrackerModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -40,6 +41,7 @@ struct PopoverView: View {
             HStack {
                 SettingsView()
                 Spacer()
+                Button("Dashboard") { openWindow(id: "dashboard") }
                 Button("Quit") { NSApp.terminate(nil) }
             }
         }
