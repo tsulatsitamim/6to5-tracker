@@ -10,9 +10,10 @@ let package = Package(
             name: "TrackerApp",
             dependencies: ["TrackerCore"]
         ),
-        .testTarget(
+        .executableTarget(
             name: "TrackerCoreTests",
-            dependencies: ["TrackerCore"]
+            dependencies: ["TrackerCore"],
+            path: "Tests/TrackerCoreTests"
         ),
     ]
 )

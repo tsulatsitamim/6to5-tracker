@@ -2,7 +2,7 @@
 build:
 	swift build
 test:
-	swift test
+	swift run TrackerCoreTests
 bundle:
 	bash Scripts/bundle.sh
 run: bundle
