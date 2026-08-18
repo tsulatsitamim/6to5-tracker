@@ -18,7 +18,7 @@
 - No Dock icon (`LSUIElement=true` + `NSApplication.shared.setActivationPolicy(.accessory)`).
 - Defaults: sample interval 5s, grace period 120s, camera-unavailable counts as present.
 - Settings changes take effect on next launch (documented in UI).
-- Build/test via `swift build` / `swift test`; run the app via `make run` (bundled `.app`).
+- Build via `swift build`; test via `make test` (runs a hand-rolled assertion runner through `swift run TrackerCoreTests` — XCTest and Swift Testing are unavailable without full Xcode, only Command Line Tools). Run the app via `make run` (bundled `.app`).
 
 ---
 
@@ -52,9 +52,10 @@ let package = Package(
             name: "TrackerApp",
             dependencies: ["TrackerCore"]
         ),
-        .testTarget(
+        .executableTarget(
             name: "TrackerCoreTests",
-            dependencies: ["TrackerCore"]
+            dependencies: ["TrackerCore"],
+            path: "Tests/TrackerCoreTests"
         ),
     ]
 )
@@ -77,14 +78,77 @@ import TrackerCore
 print("PresenceTracker \(TrackerCore.version)")
 ```
 
-`Tests/TrackerCoreTests/TrackerCoreTests.swift`:
+`Tests/TrackerCoreTests/TestMain.swift` (hand-rolled test runner — XCTest/Swift Testing are unavailable without full Xcode, per Global Constraints):
 ```swift
-import XCTest
-@testable import TrackerCore
+import Darwin
+import Foundation
+import TrackerCore
 
-final class TrackerCoreTests: XCTestCase {
-    func testVersion() {
-        XCTAssertEqual(TrackerCore.version, "0.1.0")
+// Hand-rolled test runner: XCTest and Swift Testing are unavailable without
+// a full Xcode installation, so assertions and the entry point live here.
+// Each task adds its suite function to TestMain.main() below.
+
+private(set) var testCount = 0
+private(set) var testFailures = 0
+
+func fail(_ message: String, file: String = #file, line: Int = #line) {
+    testFailures += 1
+    print("FAIL \(file):\(line) - \(message)")
+}
+
+func expectTrue(
+    _ condition: @autoclosure () -> Bool,
+    _ message: @autoclosure () -> String,
+    file: String = #file, line: Int = #line
+) {
+    testCount += 1
+    if !condition() { fail(message(), file: file, line: line) }
+}
+
+func expectEqual<T: Equatable>(
+    _ actual: @autoclosure () -> T,
+    _ expected: @autoclosure () -> T,
+    _ message: @autoclosure () -> String,
+    file: String = #file, line: Int = #line
+) {
+    testCount += 1
+    let a = actual()
+    let e = expected()
+    if a != e { fail("\(message()) - expected \(e), got \(a)", file: file, line: line) }
+}
+
+func expectNil(
+    _ actual: @autoclosure () -> Any?,
+    _ message: @autoclosure () -> String,
+    file: String = #file, line: Int = #line
+) {
+    testCount += 1
+    if actual() != nil { fail("\(message()) - expected nil", file: file, line: line) }
+}
+
+func expectNotNil(
+    _ actual: @autoclosure () -> Any?,
+    _ message: @autoclosure () -> String,
+    file: String = #file, line: Int = #line
+) {
+    testCount += 1
+    if actual() == nil { fail("\(message()) - expected non-nil", file: file, line: line) }
+}
+
+private func runVersionTests() {
+    expectEqual(TrackerCore.version, "0.1.0", "TrackerCore.version should be 0.1.0")
+}
+
+@main
+struct TestMain {
+    static func main() {
+        runVersionTests()
+
+        print("== \(testCount) assertions, \(testFailures) failures ==")
+        if testFailures > 0 {
+            exit(1)
+        }
+        print("ALL TESTS PASSED")
     }
 }
 ```
@@ -136,7 +200,7 @@ echo "Built $APP"
 build:
 	swift build
 test:
-	swift test
+	swift run TrackerCoreTests
 bundle:
 	bash Scripts/bundle.sh
 run: bundle
@@ -156,8 +220,8 @@ build/
 
 - [ ] **Step 6: Build and test**
 
-Run: `swift build` then `swift test`
-Expected: build succeeds, `testVersion` PASS.
+Run: `swift build` then `swift run TrackerCoreTests`
+Expected: build succeeds; the runner prints `ALL TESTS PASSED` and exits 0.
 
 - [ ] **Step 7: Commit**
 
@@ -260,14 +324,14 @@ git commit -m "feat: add core types, settings, and protocols"
 **Interfaces:**
 - Consumes: `PresenceResult`, `PresenceDetecting`, `SessionRecording`, `EngineState`, `Settings` (Task 2).
 - Produces:
-  - `WorkSessionEngine` with `init(detector:recorder:sampleInterval:gracePeriod:cameraUnavailableCountsAsPresent:clock:)`, `start()`, `stop()`, `state: EngineState`, `onStateChange: ((EngineState) -> Void)?`, and internal `handle(result:at:)` (testable via `@testable`). Detection runs on a background queue; state transitions + recorder calls run on main.
+  - `WorkSessionEngine` with `init(detector:recorder:sampleInterval:gracePeriod:cameraUnavailableCountsAsPresent:clock:)`, `start()`, `stop()`, `state: EngineState`, `onStateChange: ((EngineState) -> Void)?`, and public `handle(result:at:)` (callable directly from the hand-rolled test executable). Detection runs on a background queue; state transitions + recorder calls run on main.
 
 - [ ] **Step 1: Write the failing test file**
 
 `Tests/TrackerCoreTests/WorkSessionEngineTests.swift`:
 ```swift
-import XCTest
-@testable import TrackerCore
+import Foundation
+import TrackerCore
 
 final class FakeDetector: PresenceDetecting {
     func detectPresence() -> PresenceResult { .absent }
@@ -281,119 +345,142 @@ final class FakeRecorder: SessionRecording {
     func endSegment(at date: Date) { ended.append(date) }
 }
 
-final class WorkSessionEngineTests: XCTestCase {
-    private let base = Date(timeIntervalSince1970: 1_000)
+private let engineBaseDate = Date(timeIntervalSince1970: 1_000)
 
-    private func makeEngine(
-        recorder: FakeRecorder,
-        gracePeriod: TimeInterval = 120,
-        cameraUnavailableCountsAsPresent: Bool = true
-    ) -> WorkSessionEngine {
-        WorkSessionEngine(
-            detector: FakeDetector(),
-            recorder: recorder,
-            sampleInterval: 5,
-            gracePeriod: gracePeriod,
-            cameraUnavailableCountsAsPresent: cameraUnavailableCountsAsPresent,
-            clock: { self.base }
-        )
-    }
-
-    func testPresenceStartsSegmentAndActive() {
-        let r = FakeRecorder()
-        let engine = makeEngine(recorder: r)
-
-        engine.handle(result: .present, at: base)
-
-        XCTAssertEqual(engine.state, .active)
-        XCTAssertEqual(r.started.count, 1)
-        XCTAssertEqual(r.ended.count, 0)
-    }
-
-    func testAbsenceMovesActiveToGraceWithoutEnding() {
-        let r = FakeRecorder()
-        let engine = makeEngine(recorder: r)
-
-        engine.handle(result: .present, at: base)
-        engine.handle(result: .absent, at: base.addingTimeInterval(5))
-
-        XCTAssertEqual(engine.state, .grace)
-        XCTAssertEqual(r.ended.count, 0)
-    }
-
-    func testGraceExpiryEndsSegment() {
-        let r = FakeRecorder()
-        let engine = makeEngine(recorder: r, gracePeriod: 120)
-
-        engine.handle(result: .present, at: base)
-        engine.handle(result: .absent, at: base.addingTimeInterval(5))
-        engine.handle(result: .absent, at: base.addingTimeInterval(126))
-
-        XCTAssertEqual(engine.state, .idle)
-        XCTAssertEqual(r.ended.count, 1)
-        XCTAssertEqual(r.ended.first, base.addingTimeInterval(126))
-    }
-
-    func testFaceDuringGraceReturnsToActive() {
-        let r = FakeRecorder()
-        let engine = makeEngine(recorder: r)
-
-        engine.handle(result: .present, at: base)
-        engine.handle(result: .absent, at: base.addingTimeInterval(5))
-        engine.handle(result: .present, at: base.addingTimeInterval(10))
-
-        XCTAssertEqual(engine.state, .active)
-        XCTAssertEqual(r.started.count, 1)
-        XCTAssertEqual(r.ended.count, 0)
-    }
-
-    func testAbsentWhileIdleStaysIdle() {
-        let r = FakeRecorder()
-        let engine = makeEngine(recorder: r)
-
-        engine.handle(result: .absent, at: base)
-
-        XCTAssertEqual(engine.state, .idle)
-        XCTAssertEqual(r.started.count, 0)
-    }
-
-    func testCameraUnavailableCountsAsPresent() {
-        let r = FakeRecorder()
-        let engine = makeEngine(recorder: r, cameraUnavailableCountsAsPresent: true)
-
-        engine.handle(result: .cameraUnavailable, at: base)
-
-        XCTAssertEqual(engine.state, .active)
-        XCTAssertEqual(r.started.count, 1)
-    }
-
-    func testCameraUnavailableCountsAsAbsent() {
-        let r = FakeRecorder()
-        let engine = makeEngine(recorder: r, cameraUnavailableCountsAsPresent: false)
-
-        engine.handle(result: .cameraUnavailable, at: base)
-
-        XCTAssertEqual(engine.state, .idle)
-        XCTAssertEqual(r.started.count, 0)
-    }
-
-    func testStopClosesOpenSegment() {
-        let r = FakeRecorder()
-        let engine = makeEngine(recorder: r)
-
-        engine.handle(result: .present, at: base)
-        engine.stop()
-
-        XCTAssertEqual(engine.state, .idle)
-        XCTAssertEqual(r.ended.count, 1)
-    }
+private func makeEngine(
+    recorder: FakeRecorder,
+    gracePeriod: TimeInterval = 120,
+    cameraUnavailableCountsAsPresent: Bool = true
+) -> WorkSessionEngine {
+    WorkSessionEngine(
+        detector: FakeDetector(),
+        recorder: recorder,
+        sampleInterval: 5,
+        gracePeriod: gracePeriod,
+        cameraUnavailableCountsAsPresent: cameraUnavailableCountsAsPresent,
+        clock: { engineBaseDate }
+    )
 }
+
+private func testPresenceStartsSegmentAndActive() {
+    let r = FakeRecorder()
+    let engine = makeEngine(recorder: r)
+
+    engine.handle(result: .present, at: engineBaseDate)
+
+    expectEqual(engine.state, .active, "presence should activate the engine")
+    expectEqual(r.started.count, 1, "one segment should start")
+    expectEqual(r.ended.count, 0, "no segment should end")
+}
+
+private func testAbsenceMovesActiveToGraceWithoutEnding() {
+    let r = FakeRecorder()
+    let engine = makeEngine(recorder: r)
+
+    engine.handle(result: .present, at: engineBaseDate)
+    engine.handle(result: .absent, at: engineBaseDate.addingTimeInterval(5))
+
+    expectEqual(engine.state, .grace, "absence should move active to grace")
+    expectEqual(r.ended.count, 0, "segment should stay open during grace")
+}
+
+private func testGraceExpiryEndsSegment() {
+    let r = FakeRecorder()
+    let engine = makeEngine(recorder: r, gracePeriod: 120)
+
+    engine.handle(result: .present, at: engineBaseDate)
+    engine.handle(result: .absent, at: engineBaseDate.addingTimeInterval(5))
+    engine.handle(result: .absent, at: engineBaseDate.addingTimeInterval(126))
+
+    expectEqual(engine.state, .idle, "grace expiry should idle the engine")
+    expectEqual(r.ended.count, 1, "segment should end on grace expiry")
+    expectEqual(r.ended.first, engineBaseDate.addingTimeInterval(126) as Date?, "endedAt should match expiry sample time")
+}
+
+private func testFaceDuringGraceReturnsToActive() {
+    let r = FakeRecorder()
+    let engine = makeEngine(recorder: r)
+
+    engine.handle(result: .present, at: engineBaseDate)
+    engine.handle(result: .absent, at: engineBaseDate.addingTimeInterval(5))
+    engine.handle(result: .present, at: engineBaseDate.addingTimeInterval(10))
+
+    expectEqual(engine.state, .active, "face during grace should re-activate")
+    expectEqual(r.started.count, 1, "re-activation should not start a new segment")
+    expectEqual(r.ended.count, 0, "segment should remain open")
+}
+
+private func testAbsentWhileIdleStaysIdle() {
+    let r = FakeRecorder()
+    let engine = makeEngine(recorder: r)
+
+    engine.handle(result: .absent, at: engineBaseDate)
+
+    expectEqual(engine.state, .idle, "absent while idle should stay idle")
+    expectEqual(r.started.count, 0, "no segment should start")
+}
+
+private func testCameraUnavailableCountsAsPresent() {
+    let r = FakeRecorder()
+    let engine = makeEngine(recorder: r, cameraUnavailableCountsAsPresent: true)
+
+    engine.handle(result: .cameraUnavailable, at: engineBaseDate)
+
+    expectEqual(engine.state, .active, "camera unavailable should count as present")
+    expectEqual(r.started.count, 1, "a segment should start")
+}
+
+private func testCameraUnavailableCountsAsAbsent() {
+    let r = FakeRecorder()
+    let engine = makeEngine(recorder: r, cameraUnavailableCountsAsPresent: false)
+
+    engine.handle(result: .cameraUnavailable, at: engineBaseDate)
+
+    expectEqual(engine.state, .idle, "camera unavailable should count as absent")
+    expectEqual(r.started.count, 0, "no segment should start")
+}
+
+private func testStopClosesOpenSegment() {
+    let r = FakeRecorder()
+    let engine = makeEngine(recorder: r)
+
+    engine.handle(result: .present, at: engineBaseDate)
+    engine.stop()
+
+    expectEqual(engine.state, .idle, "stop should idle the engine")
+    expectEqual(r.ended.count, 1, "stop should close the open segment")
+}
+
+func runEngineTests() {
+    testPresenceStartsSegmentAndActive()
+    testAbsenceMovesActiveToGraceWithoutEnding()
+    testGraceExpiryEndsSegment()
+    testFaceDuringGraceReturnsToActive()
+    testAbsentWhileIdleStaysIdle()
+    testCameraUnavailableCountsAsPresent()
+    testCameraUnavailableCountsAsAbsent()
+    testStopClosesOpenSegment()
+}
+```
+
+Then register the suite in `Tests/TrackerCoreTests/TestMain.swift` — change `main()`:
+```swift
+        runVersionTests()
+
+        print("== \(testCount) assertions, \(testFailures) failures ==")
+```
+to:
+```swift
+        runVersionTests()
+        runEngineTests()
+
+        print("== \(testCount) assertions, \(testFailures) failures ==")
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `swift test --filter WorkSessionEngineTests`
-Expected: FAIL (cannot find `WorkSessionEngine` in scope).
+Run: `swift run TrackerCoreTests`
+Expected: FAIL at build — `cannot find 'WorkSessionEngine' in scope` (the test file references the not-yet-written type).
 
 - [ ] **Step 3: Implement `WorkSessionEngine.swift`**
 
@@ -458,7 +545,7 @@ public final class WorkSessionEngine {
         }
     }
 
-    func handle(result: PresenceResult, at date: Date) {
+    public func handle(result: PresenceResult, at date: Date) {
         let isPresent = result == .present
             || (result == .cameraUnavailable && cameraUnavailableCountsAsPresent)
 
@@ -499,8 +586,8 @@ public final class WorkSessionEngine {
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `swift test --filter WorkSessionEngineTests`
-Expected: all 8 tests PASS.
+Run: `swift run TrackerCoreTests`
+Expected: `ALL TESTS PASSED` (8 engine assertions).
 
 - [ ] **Step 5: Commit**
 
@@ -531,90 +618,115 @@ git commit -m "feat: presence state machine engine with tests"
 
 `Tests/TrackerCoreTests/DayGroupingTests.swift`:
 ```swift
-import XCTest
-@testable import TrackerCore
+import Foundation
+import TrackerCore
 
-final class DayGroupingTests: XCTestCase {
-    private var calendar: Calendar!
+private func utcCalendar() -> Calendar {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    return calendar
+}
 
-    override func setUp() {
-        calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)
-    }
+private func testSummarizeGroupsByDay() {
+    let calendar = utcCalendar()
+    let day1 = calendar.date(from: DateComponents(year: 2026, month: 8, day: 17))!
+    let day2 = calendar.date(from: DateComponents(year: 2026, month: 8, day: 18))!
+    let s1 = WorkSegment(startedAt: day1.addingTimeInterval(3600), endedAt: day1.addingTimeInterval(7200))
+    let s2 = WorkSegment(startedAt: day1.addingTimeInterval(10800), endedAt: day1.addingTimeInterval(12600))
+    let s3 = WorkSegment(startedAt: day2.addingTimeInterval(3600), endedAt: day2.addingTimeInterval(5400))
 
-    func testSummarizeGroupsByDay() {
-        let day1 = calendar.date(from: DateComponents(year: 2026, month: 8, day: 17))!
-        let day2 = calendar.date(from: DateComponents(year: 2026, month: 8, day: 18))!
-        let s1 = WorkSegment(startedAt: day1.addingTimeInterval(3600), endedAt: day1.addingTimeInterval(7200))
-        let s2 = WorkSegment(startedAt: day1.addingTimeInterval(10800), endedAt: day1.addingTimeInterval(12600))
-        let s3 = WorkSegment(startedAt: day2.addingTimeInterval(3600), endedAt: day2.addingTimeInterval(5400))
+    let summaries = DayGrouping.summarize([s1, s2, s3], calendar: calendar)
 
-        let summaries = DayGrouping.summarize([s1, s2, s3], calendar: calendar)
+    expectEqual(summaries.count, 2, "should group into two days")
+    expectEqual(summaries[0].total, 5400.0, "day1 total should be 3600 + 1800")
+    expectEqual(summaries[1].total, 1800.0, "day2 total should be 1800")
+}
 
-        XCTAssertEqual(summaries.count, 2)
-        XCTAssertEqual(summaries[0].total, 5400) // day1: 3600 + 1800
-        XCTAssertEqual(summaries[1].total, 1800) // day2
-    }
+private func testOpenSegmentCountsUntilNow() {
+    let calendar = utcCalendar()
+    let day = calendar.date(from: DateComponents(year: 2026, month: 8, day: 18))!
+    let open = WorkSegment(startedAt: day.addingTimeInterval(3600))
+    let now = day.addingTimeInterval(7200)
 
-    func testOpenSegmentCountsUntilNow() {
-        let day = calendar.date(from: DateComponents(year: 2026, month: 8, day: 18))!
-        let open = WorkSegment(startedAt: day.addingTimeInterval(3600))
-        let now = day.addingTimeInterval(7200)
+    let summaries = DayGrouping.summarize([open], calendar: calendar, now: now)
 
-        let summaries = DayGrouping.summarize([open], calendar: calendar, now: now)
+    expectEqual(summaries.count, 1, "should produce one summary")
+    expectEqual(summaries[0].total, 3600.0, "open segment should count until now")
+}
 
-        XCTAssertEqual(summaries.count, 1)
-        XCTAssertEqual(summaries[0].total, 3600)
-    }
+func runDayGroupingTests() {
+    testSummarizeGroupsByDay()
+    testOpenSegmentCountsUntilNow()
 }
 ```
 
 `Tests/TrackerCoreTests/SessionStoreTests.swift`:
 ```swift
-import XCTest
+import Foundation
 import SwiftData
-@testable import TrackerCore
+import TrackerCore
 
-@MainActor
-final class SessionStoreTests: XCTestCase {
-    private func makeStore() throws -> (SessionStore, ModelContext) {
-        let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: WorkSegment.self, configurations: config)
-        let context = ModelContext(container)
-        return (SessionStore(context: context), context)
-    }
-
-    func testStartAndEndSegment() throws {
-        let (store, _) = try makeStore()
-        let start = Date(timeIntervalSince1970: 1_000)
-
-        store.startSegment(at: start)
-        XCTAssertNotNil(store.openSegment())
-
-        store.endSegment(at: start.addingTimeInterval(60))
-        XCTAssertNil(store.openSegment())
-
-        let segments = store.allSegments()
-        XCTAssertEqual(segments.count, 1)
-        XCTAssertEqual(segments.first?.endedAt, start.addingTimeInterval(60))
-    }
-
-    func testOpenSegmentRecoveredOnInit() throws {
-        let (store, context) = try makeStore()
-        let start = Date(timeIntervalSince1970: 2_000)
-
-        store.startSegment(at: start)
-
-        let reopened = SessionStore(context: context)
-        XCTAssertNotNil(reopened.openSegment())
-    }
+private func makeStore() -> (SessionStore, ModelContext) {
+    let config = ModelConfiguration(isStoredInMemoryOnly: true)
+    let container = try! ModelContainer(for: WorkSegment.self, configurations: config)
+    let context = ModelContext(container)
+    return (SessionStore(context: context), context)
 }
+
+private func testStartAndEndSegment() {
+    let (store, _) = makeStore()
+    let start = Date(timeIntervalSince1970: 1_000)
+
+    store.startSegment(at: start)
+    expectNotNil(store.openSegment(), "openSegment should be non-nil after startSegment")
+
+    store.endSegment(at: start.addingTimeInterval(60))
+    expectNil(store.openSegment(), "openSegment should be nil after endSegment")
+
+    let segments = store.allSegments()
+    expectEqual(segments.count, 1, "there should be one segment")
+    expectEqual(segments.first?.endedAt, start.addingTimeInterval(60) as Date?, "endedAt should match")
+}
+
+private func testOpenSegmentRecoveredOnInit() {
+    let (store, context) = makeStore()
+    let start = Date(timeIntervalSince1970: 2_000)
+
+    store.startSegment(at: start)
+
+    let reopened = SessionStore(context: context)
+    expectNotNil(reopened.openSegment(), "open segment should be recovered on init")
+}
+
+func runStoreTests() {
+    testStartAndEndSegment()
+    testOpenSegmentRecoveredOnInit()
+}
+```
+
+Then register both suites in `Tests/TrackerCoreTests/TestMain.swift` — change `main()`:
+```swift
+        runVersionTests()
+        runEngineTests()
+
+        print("== \(testCount) assertions, \(testFailures) failures ==")
+```
+to:
+```swift
+        runVersionTests()
+        runEngineTests()
+        MainActor.assumeIsolated {
+            runStoreTests()
+            runDayGroupingTests()
+        }
+
+        print("== \(testCount) assertions, \(testFailures) failures ==")
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `swift test --filter SessionStoreTests` and `swift test --filter DayGroupingTests`
-Expected: FAIL (types not defined).
+Run: `swift run TrackerCoreTests`
+Expected: FAIL at build — `cannot find 'WorkSegment' in scope` (the test files reference the not-yet-written types).
 
 - [ ] **Step 3: Implement `WorkSegment.swift`**
 
@@ -731,8 +843,8 @@ public enum DayGrouping {
 
 - [ ] **Step 6: Run tests to verify they pass**
 
-Run: `swift test`
-Expected: all tests PASS (including Tasks 3's engine tests).
+Run: `swift run TrackerCoreTests`
+Expected: `ALL TESTS PASSED` (version + engine + store + grouping suites).
 
 - [ ] **Step 7: Commit**
 
@@ -1128,8 +1240,8 @@ written to disk or recorded. No data leaves the machine.
 
 - [ ] **Step 2: Full verification**
 
-Run: `swift test` then `make bundle`
-Expected: all tests PASS; `build/PresenceTracker.app` is produced and code-signed ad-hoc.
+Run: `make test` then `make bundle`
+Expected: `ALL TESTS PASSED`; `build/PresenceTracker.app` is produced and code-signed ad-hoc.
 
 - [ ] **Step 3: Commit**
 
