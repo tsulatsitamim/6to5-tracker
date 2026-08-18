@@ -63,6 +63,8 @@ struct TestMain {
         runVersionTests()
         runCoreTypesTests()
         runEngineTests()
+        runStoreTests()
+        runDayGroupingTests()
 
         print("== \(testCount) assertions, \(testFailures) failures ==")
         if testFailures > 0 {
