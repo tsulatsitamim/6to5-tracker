@@ -28,7 +28,7 @@
 - Create: `Package.swift`
 - Create: `Sources/TrackerCore/TrackerCore.swift`
 - Create: `Sources/TrackerApp/TrackerApp.swift`
-- Create: `Tests/TrackerCoreTests/TrackerCoreTests.swift`
+- Create: `Tests/TrackerCoreTests/TestMain.swift`
 - Create: `Scripts/Info.plist`
 - Create: `Scripts/bundle.sh`
 - Create: `Makefile`
