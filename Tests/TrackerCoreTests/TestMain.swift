@@ -62,6 +62,7 @@ struct TestMain {
     static func main() {
         runVersionTests()
         runCoreTypesTests()
+        runEngineTests()
 
         print("== \(testCount) assertions, \(testFailures) failures ==")
         if testFailures > 0 {
