@@ -26,8 +26,12 @@ struct PresenceTrackerApp: App {
             DashboardView()
                 .environmentObject(model)
         }
-        .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 1440, height: 900)
+        .defaultSize(width: 1200, height: 760)
+
+        Window("Settings", id: "settings") {
+            SettingsView()
+        }
+        .defaultSize(width: 380, height: 320)
     }
 
     private var iconName: String {

@@ -39,9 +39,15 @@ struct PopoverView: View {
             Divider()
 
             HStack {
-                SettingsView()
+                Button("Settings") {
+                    openWindow(id: "settings")
+                    NSApp.activate(ignoringOtherApps: true)
+                }
                 Spacer()
-                Button("Dashboard") { openWindow(id: "dashboard") }
+                Button("Dashboard") {
+                    openWindow(id: "dashboard")
+                    NSApp.activate(ignoringOtherApps: true)
+                }
                 Button("Quit") { NSApp.terminate(nil) }
             }
         }

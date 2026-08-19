@@ -9,6 +9,7 @@ final class TrackerModel: ObservableObject {
     @Published var cameraUnavailable = false
     @Published var weekElapsed: TimeInterval = 0
     @Published var sittingElapsed: TimeInterval = 0
+    @Published var lastCapturedImage: NSImage?
 
     private var sittingStreakStart: Date?
     private var sittingPausedAt: Date?
@@ -27,8 +28,9 @@ final class TrackerModel: ObservableObject {
     init() {
         store = SessionStore()
 
+        let detector = PresenceDetector()
         engine = WorkSessionEngine(
-            detector: PresenceDetector(),
+            detector: detector,
             recorder: store,
             sampleInterval: Self.load(Settings.sampleIntervalKey, Settings.defaultSampleInterval),
             gracePeriod: Self.load(Settings.gracePeriodKey, Settings.defaultGracePeriod),
@@ -37,6 +39,9 @@ final class TrackerModel: ObservableObject {
                 Settings.defaultCameraUnavailableCountsAsPresent
             )
         )
+        detector.onFrameCaptured = { [weak self] image in
+            DispatchQueue.main.async { self?.lastCapturedImage = image }
+        }
         engine.onStateChange = { [weak self] newState in
             let now = Date()
             Task { @MainActor in
@@ -113,11 +118,10 @@ final class TrackerModel: ObservableObject {
     }
 
     static func format(_ interval: TimeInterval) -> String {
-        let total = Int(interval)
+        let total = max(0, Int(interval))
         let h = total / 3600
         let m = (total % 3600) / 60
         let s = total % 60
-        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
-        return String(format: "%02d:%02d", m, s)
+        return String(format: "%02d:%02d:%02d", h, m, s)
     }
 }
