@@ -9,10 +9,17 @@ sampling the webcam for face presence. No manual start/stop toggle.
 
 ## Install
 Download the `.dmg` from the latest GitHub release, open it, and drag
-`PresenceTracker.app` into `Applications`. Because the app is not
-notarized, macOS may block it on first launch — right-click the app and
-choose **Open**, or run `xattr -dr com.apple.quarantine
-/Applications/PresenceTracker.app`, then launch normally.
+`PresenceTracker.app` into `Applications`.
+
+The app is **not notarized** (no Apple Developer certificate), so macOS
+Gatekeeper blocks it on first launch with *"Apple could not verify…"*.
+Right-click → Open does **not** bypass this. Clear the quarantine flag once,
+then launch normally:
+
+```
+xattr -dr com.apple.quarantine /Applications/PresenceTracker.app
+open /Applications/PresenceTracker.app
+```
 
 ## Build & run
 make run          # builds release and opens the bundled .app
