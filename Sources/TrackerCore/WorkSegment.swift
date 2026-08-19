@@ -1,6 +1,6 @@
 import Foundation
 
-public final class WorkSegment {
+public final class WorkSegment: Codable {
     public var id: UUID
     public var startedAt: Date
     public var endedAt: Date?

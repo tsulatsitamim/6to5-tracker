@@ -2,7 +2,14 @@ import Foundation
 import TrackerCore
 
 private func makeStore() -> SessionStore {
-    SessionStore()
+    SessionStore(fileURL: tempStoreURL())
+}
+
+private func tempStoreURL() -> URL {
+    let dir = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    return dir.appendingPathComponent("segments.json")
 }
 
 private func testStartAndEndSegment() {
@@ -36,7 +43,36 @@ private func testMultipleSegmentsSortedByStart() {
     expectEqual(segments.first?.startedAt, t0 as Date?, "segments should be sorted by startedAt ascending")
 }
 
+private func testPersistenceRoundTrip() {
+    let url = tempStoreURL()
+
+    let store = SessionStore(fileURL: url)
+    let start = Date(timeIntervalSince1970: 1_000)
+    store.startSegment(at: start)
+    store.endSegment(at: start.addingTimeInterval(60))
+
+    let reloaded = SessionStore(fileURL: url)
+    let segments = reloaded.allSegments()
+    expectEqual(segments.count, 1, "reloaded store should have one persisted segment")
+    expectEqual(segments.first?.startedAt, start as Date?, "reloaded startedAt should match")
+    expectEqual(segments.first?.endedAt, start.addingTimeInterval(60) as Date?, "reloaded endedAt should match")
+}
+
+private func testOpenSegmentFinalizedOnReload() {
+    let url = tempStoreURL()
+
+    let store = SessionStore(fileURL: url)
+    store.startSegment(at: Date(timeIntervalSince1970: 2_000))
+
+    let reloaded = SessionStore(fileURL: url)
+    let segments = reloaded.allSegments()
+    expectEqual(segments.count, 1, "reloaded store should still have the segment")
+    expectNotNil(segments.first?.endedAt, "open segment should be finalized on reload, not left open")
+}
+
 func runStoreTests() {
     testStartAndEndSegment()
     testMultipleSegmentsSortedByStart()
+    testPersistenceRoundTrip()
+    testOpenSegmentFinalizedOnReload()
 }
