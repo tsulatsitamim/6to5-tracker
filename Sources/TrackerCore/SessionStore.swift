@@ -26,6 +26,21 @@ public final class SessionStore: SessionRecording {
         save()
     }
 
+    /// Inserts a completed (closed) work segment. Does not affect the open
+    /// auto-tracked segment. Returns nil if `duration` is not positive.
+    @discardableResult
+    public func addManualSegment(startedAt: Date, duration: TimeInterval) -> WorkSegment? {
+        guard duration > 0 else { return nil }
+        let segment = WorkSegment(
+            startedAt: startedAt,
+            endedAt: startedAt.addingTimeInterval(duration),
+            createdAt: Date()
+        )
+        segments.append(segment)
+        save()
+        return segment
+    }
+
     public func openSegment() -> WorkSegment? {
         currentSegment
     }

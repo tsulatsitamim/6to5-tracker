@@ -70,9 +70,48 @@ private func testOpenSegmentFinalizedOnReload() {
     expectNotNil(segments.first?.endedAt, "open segment should be finalized on reload, not left open")
 }
 
+private func testAddManualSegment() {
+    let store = makeStore()
+    let start = Date(timeIntervalSince1970: 1_700_000_000)
+    let duration: TimeInterval = 45 * 60
+
+    let added = store.addManualSegment(startedAt: start, duration: duration)
+
+    expectNotNil(added, "addManualSegment should return the new segment")
+    expectEqual(store.allSegments().count, 1, "store should contain the manual segment")
+    expectEqual(added?.startedAt, start as Date?, "startedAt should match")
+    expectEqual(added?.endedAt, start.addingTimeInterval(duration) as Date?, "endedAt should be start + duration")
+    expectNil(store.openSegment(), "manual segment must not become the open segment")
+}
+
+private func testAddManualSegmentRejectsNonPositiveDuration() {
+    let store = makeStore()
+    let start = Date(timeIntervalSince1970: 1_700_000_000)
+
+    expectNil(store.addManualSegment(startedAt: start, duration: 0), "zero duration should be rejected")
+    expectNil(store.addManualSegment(startedAt: start, duration: -60), "negative duration should be rejected")
+    expectEqual(store.allSegments().count, 0, "rejected entries must not be stored")
+}
+
+private func testAddManualSegmentPersists() {
+    let url = tempStoreURL()
+    let store = SessionStore(fileURL: url)
+    let start = Date(timeIntervalSince1970: 1_700_000_000)
+
+    _ = store.addManualSegment(startedAt: start, duration: 30 * 60)
+
+    let reloaded = SessionStore(fileURL: url)
+    let segments = reloaded.allSegments()
+    expectEqual(segments.count, 1, "manual segment should persist")
+    expectEqual(segments.first?.endedAt, start.addingTimeInterval(30 * 60) as Date?, "persisted endedAt should match")
+}
+
 func runStoreTests() {
     testStartAndEndSegment()
     testMultipleSegmentsSortedByStart()
     testPersistenceRoundTrip()
     testOpenSegmentFinalizedOnReload()
+    testAddManualSegment()
+    testAddManualSegmentRejectsNonPositiveDuration()
+    testAddManualSegmentPersists()
 }

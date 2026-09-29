@@ -71,6 +71,37 @@ final class TrackerModel: ObservableObject {
         }
     }
 
+    /// Adds a closed manual work segment for `day` from `startTime` to
+    /// `endTime`. Overlaps with existing segments do not inflate totals
+    /// (DayGrouping unions intervals). Returns false if rejected.
+    @discardableResult
+    func addManualWork(day: Date, startTime: Date, endTime: Date) -> Bool {
+        let calendar = Calendar.current
+        var startComponents = calendar.dateComponents([.year, .month, .day], from: day)
+        let startClock = calendar.dateComponents([.hour, .minute], from: startTime)
+        startComponents.hour = startClock.hour
+        startComponents.minute = startClock.minute
+        startComponents.second = 0
+
+        var endComponents = calendar.dateComponents([.year, .month, .day], from: day)
+        let endClock = calendar.dateComponents([.hour, .minute], from: endTime)
+        endComponents.hour = endClock.hour
+        endComponents.minute = endClock.minute
+        endComponents.second = 0
+
+        guard let startedAt = calendar.date(from: startComponents),
+              let endedAt = calendar.date(from: endComponents)
+        else { return false }
+
+        let duration = endedAt.timeIntervalSince(startedAt)
+        guard duration > 0 else { return false }
+        guard store.addManualSegment(startedAt: startedAt, duration: duration) != nil else {
+            return false
+        }
+        refresh()
+        return true
+    }
+
     func refresh() {
         let now = Date()
         let summaries = DayGrouping.summarize(store.allSegments(), now: now)

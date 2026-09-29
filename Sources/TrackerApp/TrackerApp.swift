@@ -32,6 +32,12 @@ struct PresenceTrackerApp: App {
             SettingsView()
         }
         .defaultSize(width: 380, height: 320)
+
+        Window("Add Manual Entry", id: "add-work") {
+            AddManualWorkView()
+                .environmentObject(model)
+        }
+        .defaultSize(width: 360, height: 240)
     }
 
     private var iconName: String {

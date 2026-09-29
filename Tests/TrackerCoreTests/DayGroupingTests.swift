@@ -34,7 +34,87 @@ private func testOpenSegmentCountsUntilNow() {
     expectEqual(summaries[0].total, 3600.0, "open segment should count until now")
 }
 
+private func testOverlappingSegmentsCountUnionOnly() {
+    let calendar = utcCalendar()
+    let day = calendar.date(from: DateComponents(year: 2026, month: 8, day: 18))!
+    // 09:00–10:00 and 09:30–11:00 → union is 09:00–11:00 = 2h
+    let a = WorkSegment(
+        startedAt: day.addingTimeInterval(9 * 3600),
+        endedAt: day.addingTimeInterval(10 * 3600)
+    )
+    let b = WorkSegment(
+        startedAt: day.addingTimeInterval(9.5 * 3600),
+        endedAt: day.addingTimeInterval(11 * 3600)
+    )
+
+    let summaries = DayGrouping.summarize([a, b], calendar: calendar)
+
+    expectEqual(summaries.count, 1, "overlapping segments stay on one day")
+    expectEqual(summaries[0].total, 2 * 3600.0, "overlap must not double-count duration")
+}
+
+private func testNestedSegmentDoesNotAddDuration() {
+    let calendar = utcCalendar()
+    let day = calendar.date(from: DateComponents(year: 2026, month: 8, day: 18))!
+    let outer = WorkSegment(
+        startedAt: day.addingTimeInterval(9 * 3600),
+        endedAt: day.addingTimeInterval(12 * 3600)
+    )
+    let inner = WorkSegment(
+        startedAt: day.addingTimeInterval(10 * 3600),
+        endedAt: day.addingTimeInterval(11 * 3600)
+    )
+
+    let summaries = DayGrouping.summarize([outer, inner], calendar: calendar)
+
+    expectEqual(summaries[0].total, 3 * 3600.0, "nested segment must not add duration")
+}
+
+private func testAdjacentSegmentsDoNotDoubleCount() {
+    let calendar = utcCalendar()
+    let day = calendar.date(from: DateComponents(year: 2026, month: 8, day: 18))!
+    let a = WorkSegment(
+        startedAt: day.addingTimeInterval(9 * 3600),
+        endedAt: day.addingTimeInterval(10 * 3600)
+    )
+    let b = WorkSegment(
+        startedAt: day.addingTimeInterval(10 * 3600),
+        endedAt: day.addingTimeInterval(11 * 3600)
+    )
+
+    let summaries = DayGrouping.summarize([a, b], calendar: calendar)
+
+    expectEqual(summaries[0].total, 2 * 3600.0, "adjacent segments should total 2h")
+}
+
+private func testSeparateClustersSumIndependently() {
+    let calendar = utcCalendar()
+    let day = calendar.date(from: DateComponents(year: 2026, month: 8, day: 18))!
+    // Cluster 1: 09:00–10:00 ∪ 09:30–10:30 = 1.5h
+    let a = WorkSegment(
+        startedAt: day.addingTimeInterval(9 * 3600),
+        endedAt: day.addingTimeInterval(10 * 3600)
+    )
+    let b = WorkSegment(
+        startedAt: day.addingTimeInterval(9.5 * 3600),
+        endedAt: day.addingTimeInterval(10.5 * 3600)
+    )
+    // Cluster 2: 14:00–15:00 = 1h
+    let c = WorkSegment(
+        startedAt: day.addingTimeInterval(14 * 3600),
+        endedAt: day.addingTimeInterval(15 * 3600)
+    )
+
+    let summaries = DayGrouping.summarize([a, b, c], calendar: calendar)
+
+    expectEqual(summaries[0].total, 2.5 * 3600.0, "separate clusters sum as unions")
+}
+
 func runDayGroupingTests() {
     testSummarizeGroupsByDay()
     testOpenSegmentCountsUntilNow()
+    testOverlappingSegmentsCountUnionOnly()
+    testNestedSegmentDoesNotAddDuration()
+    testAdjacentSegmentsDoNotDoubleCount()
+    testSeparateClustersSumIndependently()
 }
