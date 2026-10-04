@@ -24,6 +24,25 @@ struct PopoverView: View {
             .padding(.top, 12)
             .padding(.bottom, 10)
 
+            Picker("Tracking", selection: Binding(
+                get: { model.mode },
+                set: { model.setMode($0) }
+            )) {
+                Text("Automatic").tag(TrackingMode.automatic)
+                Text("Keep working").tag(TrackingMode.keepWorking)
+                Text("Keep idle").tag(TrackingMode.keepIdle)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 12)
+            .padding(.bottom, 4)
+
+            Text(modeCaption)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 10)
+
             Divider()
 
             if model.history.isEmpty {
@@ -78,14 +97,32 @@ struct PopoverView: View {
         HoverMenuButton(title: title, action: action)
     }
 
+    private var modeCaption: String {
+        switch model.mode {
+        case .automatic:
+            return "Camera decides when the clock runs."
+        case .keepWorking:
+            return "Counting with the camera off — e.g. working on another device."
+        case .keepIdle:
+            return "Paused with the camera off — presence is ignored."
+        }
+    }
+
     private var statusBadge: some View {
-        switch model.state {
-        case .idle:
-            return Label("Away", systemImage: "person.slash")
-        case .active:
-            return Label("Working", systemImage: "person.fill")
-        case .grace:
-            return Label("Away (grace)", systemImage: "person.fill.questionmark")
+        switch model.mode {
+        case .keepWorking:
+            return Label("Working · manual", systemImage: "bolt.fill")
+        case .keepIdle:
+            return Label("Paused · manual", systemImage: "pause.circle.fill")
+        case .automatic:
+            switch model.state {
+            case .idle:
+                return Label("Away", systemImage: "person.slash")
+            case .active:
+                return Label("Working", systemImage: "person.fill")
+            case .grace:
+                return Label("Away (grace)", systemImage: "person.fill.questionmark")
+            }
         }
     }
 }

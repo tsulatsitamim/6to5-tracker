@@ -41,10 +41,15 @@ struct PresenceTrackerApp: App {
     }
 
     private var iconName: String {
-        switch model.state {
-        case .idle: return "person.slash"
-        case .active: return "person.fill"
-        case .grace: return "person.fill.questionmark"
+        switch model.mode {
+        case .keepWorking: return "bolt.fill"
+        case .keepIdle: return "pause.circle.fill"
+        case .automatic:
+            switch model.state {
+            case .idle: return "person.slash"
+            case .active: return "person.fill"
+            case .grace: return "person.fill.questionmark"
+            }
         }
     }
 }

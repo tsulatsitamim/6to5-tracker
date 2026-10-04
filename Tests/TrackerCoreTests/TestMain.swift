@@ -54,7 +54,7 @@ func expectNotNil(
 }
 
 private func runVersionTests() {
-    expectEqual(TrackerCore.version, "0.1.1", "TrackerCore.version should be 0.1.1")
+    expectEqual(TrackerCore.version, "0.2.0", "TrackerCore.version should be 0.2.0")
 }
 
 @main

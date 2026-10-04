@@ -4,6 +4,7 @@ import TrackerCore
 @MainActor
 final class TrackerModel: ObservableObject {
     @Published var state: EngineState = .idle
+    @Published var mode: TrackingMode = .automatic
     @Published var todayElapsed: TimeInterval = 0
     @Published var history: [DaySummary] = []
     @Published var cameraUnavailable = false
@@ -56,7 +57,6 @@ final class TrackerModel: ObservableObject {
     func start() {
         refresh()
         engine.start()
-
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
@@ -69,6 +69,13 @@ final class TrackerModel: ObservableObject {
         ) { [weak self] _ in
             self?.shutdown()
         }
+    }
+
+    /// Switches between camera-driven tracking and the manual overrides.
+    func setMode(_ newMode: TrackingMode) {
+        engine.setMode(newMode)
+        mode = newMode
+        refresh()
     }
 
     /// Adds a closed manual work segment for `day` from `startTime` to

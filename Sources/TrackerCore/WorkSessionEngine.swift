@@ -7,6 +7,10 @@ public final class WorkSessionEngine {
         didSet { if oldValue != state { onStateChange?(state) } }
     }
 
+    /// Manual override of the camera-driven state machine. Not persisted:
+    /// it resets to `.automatic` every time the app launches.
+    public private(set) var mode: TrackingMode = .automatic
+
     private let detector: PresenceDetecting
     private let recorder: SessionRecording
     private let sampleInterval: TimeInterval
@@ -48,7 +52,25 @@ public final class WorkSessionEngine {
         closeIfNeeded(at: clock())
     }
 
+    /// Switches the tracking mode and immediately applies its effect. In a
+    /// manual mode the camera is bypassed: `keepWorking` opens/reactivates a
+    /// segment, `keepIdle` closes it at once (no grace period).
+    public func setMode(_ mode: TrackingMode, at date: Date? = nil) {
+        self.mode = mode
+        applyMode(at: date ?? clock())
+    }
+
     private func tick() {
+        // Manual modes bypass the camera entirely: no sampling, no LED blink,
+        // no battery cost.
+        guard mode == .automatic else {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.applyMode(at: self.clock())
+            }
+            return
+        }
+
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let result = self?.detector.detectPresence() ?? .cameraUnavailable
             DispatchQueue.main.async {
@@ -59,32 +81,65 @@ public final class WorkSessionEngine {
     }
 
     public func handle(result: PresenceResult, at date: Date) {
+        // A manual mode wins over whatever the detector reported.
+        guard mode == .automatic else {
+            applyMode(at: date)
+            return
+        }
+
         let isPresent = result == .present
             || (result == .cameraUnavailable && cameraUnavailableCountsAsPresent)
 
         if isPresent {
-            if state == .idle {
-                state = .active
-                recorder.startSegment(at: date)
-            } else if state == .grace {
-                state = .active
-            }
-            graceDeadline = nil
+            markPresent(at: date)
         } else {
-            switch state {
-            case .idle:
-                break
-            case .active:
-                state = .grace
-                graceDeadline = date.addingTimeInterval(gracePeriod)
-            case .grace:
-                if let deadline = graceDeadline, date >= deadline {
-                    state = .idle
-                    recorder.endSegment(at: date)
-                    graceDeadline = nil
-                }
+            markAbsent(at: date)
+        }
+    }
+
+    private func applyMode(at date: Date) {
+        switch mode {
+        case .automatic:
+            break
+        case .keepWorking:
+            markPresent(at: date)
+        case .keepIdle:
+            markAbsentImmediately(at: date)
+        }
+    }
+
+    private func markPresent(at date: Date) {
+        if state == .idle {
+            state = .active
+            recorder.startSegment(at: date)
+        } else if state == .grace {
+            state = .active
+        }
+        graceDeadline = nil
+    }
+
+    private func markAbsent(at date: Date) {
+        switch state {
+        case .idle:
+            break
+        case .active:
+            state = .grace
+            graceDeadline = date.addingTimeInterval(gracePeriod)
+        case .grace:
+            if let deadline = graceDeadline, date >= deadline {
+                state = .idle
+                recorder.endSegment(at: date)
+                graceDeadline = nil
             }
         }
+    }
+
+    private func markAbsentImmediately(at date: Date) {
+        if state == .active || state == .grace {
+            state = .idle
+            recorder.endSegment(at: date)
+        }
+        graceDeadline = nil
     }
 
     private func closeIfNeeded(at date: Date) {

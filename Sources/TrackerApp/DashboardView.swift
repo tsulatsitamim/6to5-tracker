@@ -101,6 +101,7 @@ struct DashboardView: View {
                             cameraThumbnail
                         }
                         Spacer()
+                        modeBadge
                         if isFullScreen {
                             Button(action: { DashboardWindowController.shared.toggle() }) {
                                 Image(systemName: "arrow.down.right.and.arrow.up.left")
@@ -126,6 +127,29 @@ struct DashboardView: View {
         }
     }
 
+    private var modeBadge: some View {
+        let text: String
+        let icon: String
+        let tint: Color
+        switch model.mode {
+        case .automatic:
+            text = "AUTOMATIC"; icon = "video.fill"; tint = .white.opacity(0.55)
+        case .keepWorking:
+            text = "KEEP WORKING"; icon = "bolt.fill"
+            tint = Color(red: 1.0, green: 0.8, blue: 0.3)
+        case .keepIdle:
+            text = "KEEP IDLE"; icon = "pause.fill"
+            tint = Color(red: 1.0, green: 0.55, blue: 0.45)
+        }
+        return Label(text, systemImage: icon)
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.white.opacity(0.08))
+            .clipShape(Capsule())
+    }
+
     private var hSeparator: some View {
         Rectangle().fill(Color.white.opacity(0.10)).frame(height: 1)
     }
@@ -138,7 +162,22 @@ struct DashboardView: View {
     private var cameraThumbnail: some View {
         let thumbW: CGFloat = 180
         let thumbH: CGFloat = 120
-        if let image = model.lastCapturedImage {
+        if model.mode != .automatic {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.white.opacity(0.05))
+                .frame(width: thumbW, height: thumbH)
+                .overlay(
+                    VStack(spacing: 6) {
+                        Image(systemName: "camera.fill")
+                            .font(.system(size: 18))
+                            .foregroundStyle(.white.opacity(0.3))
+                        Text("Camera off")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.3))
+                    }
+                )
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.10), lineWidth: 0.5))
+        } else if let image = model.lastCapturedImage {
             Image(nsImage: image)
                 .resizable()
                 .scaledToFill()

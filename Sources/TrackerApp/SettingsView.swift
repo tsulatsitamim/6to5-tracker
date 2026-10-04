@@ -52,6 +52,9 @@ struct SettingsView: View {
             Text("Sample interval & grace period apply after restart. Thresholds apply immediately.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            Text("Manual modes (Keep working / Keep idle) reset to Automatic when the app restarts.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
         .padding(8)
         .formStyle(.grouped)

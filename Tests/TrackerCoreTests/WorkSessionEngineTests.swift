@@ -119,6 +119,86 @@ private func testStopClosesOpenSegment() {
     expectEqual(r.ended.count, 1, "stop should close the open segment")
 }
 
+private func testKeepWorkingStartsSegmentFromIdle() {
+    let r = FakeRecorder()
+    let engine = makeEngine(recorder: r)
+
+    engine.setMode(.keepWorking, at: engineBaseDate)
+
+    expectEqual(engine.mode, .keepWorking, "mode should be keepWorking")
+    expectEqual(engine.state, .active, "keepWorking should activate the engine")
+    expectEqual(r.started.count, 1, "keepWorking should start a segment")
+    expectEqual(r.ended.count, 0, "no segment should end")
+}
+
+private func testKeepWorkingIgnoresAbsence() {
+    let r = FakeRecorder()
+    let engine = makeEngine(recorder: r)
+
+    engine.setMode(.keepWorking, at: engineBaseDate)
+    engine.handle(result: .absent, at: engineBaseDate.addingTimeInterval(5))
+    engine.handle(result: .absent, at: engineBaseDate.addingTimeInterval(500))
+
+    expectEqual(engine.state, .active, "absence must be ignored while keepWorking")
+    expectEqual(r.ended.count, 0, "segment must stay open while keepWorking")
+}
+
+private func testKeepWorkingDuringGraceReactivates() {
+    let r = FakeRecorder()
+    let engine = makeEngine(recorder: r)
+
+    engine.handle(result: .present, at: engineBaseDate)
+    engine.handle(result: .absent, at: engineBaseDate.addingTimeInterval(5))
+    expectEqual(engine.state, .grace, "absence should reach grace first")
+
+    engine.setMode(.keepWorking, at: engineBaseDate.addingTimeInterval(10))
+
+    expectEqual(engine.state, .active, "keepWorking should pull state out of grace")
+    expectEqual(r.started.count, 1, "no new segment should start")
+    expectEqual(r.ended.count, 0, "segment should remain open")
+}
+
+private func testKeepIdleEndsSegmentImmediately() {
+    let r = FakeRecorder()
+    let engine = makeEngine(recorder: r)
+
+    engine.handle(result: .present, at: engineBaseDate)
+    engine.setMode(.keepIdle, at: engineBaseDate.addingTimeInterval(5))
+
+    expectEqual(engine.mode, .keepIdle, "mode should be keepIdle")
+    expectEqual(engine.state, .idle, "keepIdle should idle the engine without grace")
+    expectEqual(r.ended.count, 1, "keepIdle should close the open segment at once")
+    expectEqual(r.ended.first, engineBaseDate.addingTimeInterval(5) as Date?, "endedAt should be the switch time")
+}
+
+private func testKeepIdleSuppressesCameraPresence() {
+    let r = FakeRecorder()
+    let engine = makeEngine(recorder: r)
+
+    engine.setMode(.keepIdle, at: engineBaseDate)
+    engine.handle(result: .present, at: engineBaseDate.addingTimeInterval(5))
+
+    expectEqual(engine.state, .idle, "camera presence must be ignored while keepIdle")
+    expectEqual(r.started.count, 0, "no segment should start while keepIdle")
+}
+
+private func testReturningToAutomaticReevaluatesCamera() {
+    let r = FakeRecorder()
+    let engine = makeEngine(recorder: r)
+
+    engine.handle(result: .present, at: engineBaseDate)
+    engine.setMode(.keepIdle, at: engineBaseDate.addingTimeInterval(5))
+    engine.setMode(.automatic, at: engineBaseDate.addingTimeInterval(10))
+
+    expectEqual(engine.mode, .automatic, "mode should be automatic")
+    expectEqual(engine.state, .idle, "returning to automatic should not force a state by itself")
+
+    engine.handle(result: .present, at: engineBaseDate.addingTimeInterval(15))
+
+    expectEqual(engine.state, .active, "camera should drive state again in automatic")
+    expectEqual(r.started.count, 2, "a fresh segment should start on camera presence")
+}
+
 func runEngineTests() {
     testPresenceStartsSegmentAndActive()
     testAbsenceMovesActiveToGraceWithoutEnding()
@@ -128,4 +208,10 @@ func runEngineTests() {
     testCameraUnavailableCountsAsPresent()
     testCameraUnavailableCountsAsAbsent()
     testStopClosesOpenSegment()
+    testKeepWorkingStartsSegmentFromIdle()
+    testKeepWorkingIgnoresAbsence()
+    testKeepWorkingDuringGraceReactivates()
+    testKeepIdleEndsSegmentImmediately()
+    testKeepIdleSuppressesCameraPresence()
+    testReturningToAutomaticReevaluatesCamera()
 }

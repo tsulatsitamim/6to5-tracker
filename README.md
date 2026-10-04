@@ -1,7 +1,9 @@
 # Presence Tracker
 
 A native macOS menu-bar app that tracks daily work time automatically by
-sampling the webcam for face presence. No manual start/stop toggle.
+sampling the webcam for face presence. No manual start/stop toggle — just
+optional **Keep working** / **Keep idle** overrides for when the camera
+cannot tell the whole story.
 
 ## Requirements
 - macOS 14.0+
@@ -30,6 +32,12 @@ make test         # runs unit tests
 - Sit in front of the camera: the timer counts automatically.
 - Step away: after the grace period (default 2 min) the clock pauses.
 - Click the menu-bar item for today's total and daily history.
+- Use the **Tracking** selector in the popover to override the camera:
+  - **Automatic** — the camera decides when the clock runs (default; always
+    restored on launch).
+  - **Keep working** — count continuously with the camera off, e.g. when you
+    work on another device.
+  - **Keep idle** — pause with the camera off even if you are in frame.
 - The popover opens the full-screen **Dashboard** (today, this week,
   current sitting streak, live camera thumbnail) and **Settings**.
 - Work history persists to
